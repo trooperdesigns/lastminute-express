@@ -46,6 +46,9 @@ var User = new Schema({
             type: String
         }
     },
+    phone: {
+        type: String,
+    },
     userProfile: {
         fbId: {
             type: String
@@ -108,7 +111,10 @@ var Event = new Schema({
         type: Date,
         default: Date.now
     },
-    invitedUsers: [userStatus] ,
+    location: {
+        type: String
+    },
+    invitedUsers: [String] ,
     creator: Schema.ObjectId
 })
 

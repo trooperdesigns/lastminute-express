@@ -17,7 +17,8 @@
         "passport"      : "0.1.x",
         "passport-http" : "0.2.x",
         "passport-http-bearer": "1.0.x",
-        "passport-oauth2-client-password": "0.1.x"
+        "passport-oauth2-client-password": "0.1.x",
+        "parse": "*"
     },
     "license": "MIT"
 }

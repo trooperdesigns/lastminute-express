@@ -8,6 +8,8 @@ var ArticleModel    = require('./libs/mongoose').ArticleModel;
 var UserModel    = require('./libs/mongoose').UserModel;
 var EventModel = require('./libs/mongoose').EventModel;
 
+var Parse = require('parse').Parse;
+
 var app = express();
 
 app.use(express.favicon());
@@ -19,6 +21,17 @@ app.use(app.router);
 app.use(express.static(path.join(__dirname, "public")));
 
 require('./libs/auth');
+
+Parse.initialize("h2MLeRkYqlmO9e2jE2y1BMysPiPRUuy07Ur8La6A", "97GaGmE01ohzfvapqbLdpNK1AtWTNUpDekPItwCv");
+
+var query = new Parse.Query(Parse.User);
+query.find({
+    success: function(users){
+        for(var i = 0; i < users.length; i++){
+            console.log(users[i].get('username'));
+        }
+    }
+});
 
 app.use(function(req, res, next){
     res.status(404);
@@ -74,6 +87,25 @@ app.post('/api/users', function(req, res) {
     user.save(function (err) {
         if (!err) {
             log.info("user created");
+
+            var parseUser = new Parse.User();
+            parseUser.set("username", req.body.username);
+            parseUser.set("password", req.body.password);
+            parseUser.set("email", req.body.email);
+            parseUser.set("phone", req.body.phone);
+            parseUser.set("LMID", String(user._id));
+
+            parseUser.signUp(null, {
+                success: function(user){
+                    console.log("Parse user : " + user.get("username") + " created");
+                },
+                error: function(user, error) {
+                    console.log("Error: " + error.code + " " + error.message + " - could not create parse user: " + user.get("username"));
+                }
+            });
+
+
+
             return res.send({ status: 'OK', user:user });
         } else {
             console.log(err);
@@ -187,6 +219,44 @@ app.post('/api/events', passport.authenticate('bearer', { session: false }), fun
 
     event.save(function (err) {
         if (!err) {
+
+
+
+            // var userQuery = new Parse.Query(Parse.User);
+            // userQuery.equalTo("user", "julian");
+
+            var pushQuery = new Parse.Query(Parse.Installation);
+            // pushQuery.matchesQuery('user', userQuery);
+            for(var i=0; i < event.invitedUsers.length; i++) {
+                pushQuery.equalTo("user",  event.invitedUsers[i]);
+            }
+
+            // userQuery.find({
+            //     success: function(user) {
+            //         pushQuery.equalTo
+            //     },
+            //     error: function(err) {
+            //         console.log(error.code)
+            //     }
+            // })
+
+            Parse.Push.send({
+                where: pushQuery,
+                data: {
+                    alert: "~~~~~~~whut whut whut"
+                }
+            }, {
+                success: function() {
+                    //oh shit
+                    log.info("SHIT IS WORKING")
+                },
+                error: function(err) {
+                    //error
+                    log.info("shit aint working")
+                }
+            })
+
+
             log.info("Event created");
             return res.send({ status: 'OK', event:event });
         } else {
@@ -199,6 +269,44 @@ app.post('/api/events', passport.authenticate('bearer', { session: false }), fun
                 res.send({ error: 'Server error' });
             }
             log.error('Internal error(%d): %s',res.statusCode,err.message);
+        }
+    });
+});
+
+app.put('/api/events/:id', passport.authenticate('bearer', { session: false }), function(req, res) {
+    return EventModel.findById(req.params.id, function (err, event) {
+        if(!event) {
+            res.statusCode = 404;
+            return res.send({ error: 'Not found' });
+        }
+        if (!err) {
+
+            event.creator = req.body.creator;
+            event.invitedUsers = req.body.invitedUsers;
+            event.location = req.body.location;
+            event.name = req.body.name;
+
+            return event.save(function (err) {
+                if (!err) {
+                    log.info("event updated");
+                    return res.send({ status: 'OK', event:event });
+                } else {
+                    if(err.name == 'ValidationError') {
+                        res.statusCode = 400;
+                        res.send({ error: 'Validation error' });
+                    } else {
+                        res.statusCode = 500;
+                        res.send({ error: 'Server error' });
+                    }
+                    log.error('Internal error(%d): %s',res.statusCode,err.message);
+                }
+            });
+
+
+        } else {
+            res.statusCode = 500;
+            log.error('Internal error(%d): %s',res.statusCode,err.message);
+            return res.send({ error: 'Server error' });
         }
     });
 });

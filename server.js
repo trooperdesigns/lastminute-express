@@ -53,6 +53,9 @@ app.get('/api', passport.authenticate('bearer', { session: false }), function (r
 
 app.post('/oauth/token', oauth2.token);
 
+/*
+ * Get All Users
+ */
 app.get('/api/users', function(req, res) {
     return UserModel.find(function (err, users) {
         if (!err) {
@@ -64,7 +67,8 @@ app.get('/api/users', function(req, res) {
                     username:user.username,
                     userId:user._id,
                     name: user.name,
-                    userProfile: user.userProfile
+                    userProfile: user.userProfile,
+                    email: user.email,
                 });
             }
             res.send(userInfoArray);
@@ -76,35 +80,24 @@ app.get('/api/users', function(req, res) {
     });
 });
 
-//Sign up and create user
+/*
+ * Sign Up/Create User
+ */
 app.post('/api/users', function(req, res) {
     //Create a user call
     var user = new UserModel({
         username: req.body.username,
-        password: req.body.password
+        password: req.body.password,
+        name: {
+            firstName: req.body.firstName,
+            lastName: req.body.lastName
+        },
+        email: req.body.email
     })
 
     user.save(function (err) {
         if (!err) {
             log.info("user created");
-
-            var parseUser = new Parse.User();
-            parseUser.set("username", req.body.username);
-            parseUser.set("password", req.body.password);
-            parseUser.set("email", req.body.email);
-            parseUser.set("phone", req.body.phone);
-            parseUser.set("LMID", String(user._id));
-
-            parseUser.signUp(null, {
-                success: function(user){
-                    console.log("Parse user : " + user.get("username") + " created");
-                },
-                error: function(user, error) {
-                    console.log("Error: " + error.code + " " + error.message + " - could not create parse user: " + user.get("username"));
-                }
-            });
-
-
 
             return res.send({ status: 'OK', user:user });
         } else {
@@ -184,16 +177,17 @@ app.get('/api/users/:id', passport.authenticate('bearer', { session: false }), f
     });
 });
 
-//get current logged in user info
-app.get('/api/users/userInfo',
-passport.authenticate('bearer', { session: false }),
-function(req, res) {
-    // req.authInfo is set using the `info` argument supplied by
-    // `BearerStrategy`.  It is typically used to indicate scope of the token,
-    // and used in access control checks.  For illustrative purposes, this
-    // example simply returns the scope in the response.
-    res.json({ user_id: req.user.userId, username: req.user.username, name: req.user.name,  scope: req.authInfo.scope })
-}
+/*
+ * Get current user info i.e. user who is logged in
+ */
+app.get('/api/users/userInfo', passport.authenticate('bearer', { session: false }),
+    function(req, res) {
+        // req.authInfo is set using the `info` argument supplied by
+        // `BearerStrategy`.  It is typically used to indicate scope of the token,
+        // and used in access control checks.  For illustrative purposes, this
+        // example simply returns the scope in the response.
+        res.json({ user_id: req.user.userId, username: req.user.username, name: req.user.name, userProfile: req.user.userProfile, email: req.user.email, scope: req.authInfo.scope })
+    }
 );
 
 //Event API calls
@@ -209,26 +203,45 @@ app.get('/api/events', function(req, res) {
     });
 });
 
+
+/*
+ * Create event
+   Params: invitedUsers = [ {
+            userId,
+            status = one of string [Attending, Maybe, No]
+          } ],
+          name: String (event name),
+          location: String,
+          date: Date,
+          adminUsers: [userId]
+   ]
+ */
 app.post('/api/events', passport.authenticate('bearer', { session: false }), function(req, res) {
 
     var event = new EventModel({
         creator: req.user.userId, //set event creator to current user
         invitedUsers: req.body.invitedUsers,
-        name: req.body.name
+        name: req.body.name,
+        location: req.body.location,
+        date: req.body.date,
+        adminUsers: req.body.adminUsers
     })
 
     event.save(function (err) {
         if (!err) {
-
-
-
             // var userQuery = new Parse.Query(Parse.User);
             // userQuery.equalTo("user", "julian");
 
             var pushQuery = new Parse.Query(Parse.Installation);
             // pushQuery.matchesQuery('user', userQuery);
+            //Loop through invited users and add them to the parse query
             for(var i=0; i < event.invitedUsers.length; i++) {
-                pushQuery.equalTo("user",  event.invitedUsers[i]);
+                pushQuery.equalTo("user",  UserModel.findById(event.invitedUsers[i].userId, function(err, user) {
+                    if (!err) {
+                        log.info("user found: " + user);
+                        return user;
+                    }
+                }).username);
             }
 
             // userQuery.find({
@@ -256,6 +269,7 @@ app.post('/api/events', passport.authenticate('bearer', { session: false }), fun
                 }
             })
 
+            /*INSERT CODE TO ADD EVENT TO EVERY INVITED USER*/
 
             log.info("Event created");
             return res.send({ status: 'OK', event:event });
@@ -273,7 +287,11 @@ app.post('/api/events', passport.authenticate('bearer', { session: false }), fun
     });
 });
 
+/*
+ * Modify event given event id
+ */
 app.put('/api/events/:id', passport.authenticate('bearer', { session: false }), function(req, res) {
+
     return EventModel.findById(req.params.id, function (err, event) {
         if(!event) {
             res.statusCode = 404;
@@ -281,10 +299,15 @@ app.put('/api/events/:id', passport.authenticate('bearer', { session: false }), 
         }
         if (!err) {
 
-            event.creator = req.body.creator;
+            if (event.creator != req.user.userId && event.adminUsers.indexOf(req.user.userId) == -1) {
+                return res.send({error: 'User '+req.user.username+' is not an admin. Cannot modify event.'})
+            }
+
             event.invitedUsers = req.body.invitedUsers;
-            event.location = req.body.location;
             event.name = req.body.name;
+            event.location = req.body.location;
+            event.date = req.body.date;
+            event.adminUsers = req.body.adminUsers;
 
             return event.save(function (err) {
                 if (!err) {
@@ -301,7 +324,6 @@ app.put('/api/events/:id', passport.authenticate('bearer', { session: false }), 
                     log.error('Internal error(%d): %s',res.statusCode,err.message);
                 }
             });
-
 
         } else {
             res.statusCode = 500;

@@ -62,7 +62,8 @@ var User = new Schema({
     },
     email: {
         type: String
-    }
+    },
+    friendsList: [Schema.ObjectId]
 });
 
 User.methods.encryptPassword = function(password) {
@@ -93,15 +94,6 @@ var UserModel = mongoose.model('User', User);
 
 // Events
 
-var userStatus = new Schema({
-    userId: Schema.ObjectId,
-    status: {
-        type: String,
-        enum: ['Attending', 'Maybe', 'No'],
-        required: true
-    }
-})
-
 var Event = new Schema({
     name: {
         type: String,
@@ -112,9 +104,25 @@ var Event = new Schema({
         default: Date.now
     },
     location: {
-        type: String
+        type: String,
+        required: true
     },
-    invitedUsers: [String] ,
+    date: {
+        type: Date,
+    },
+    lastUpdated: {
+        type: Date,
+        default: Date.now
+    },
+    invitedUsers: [{
+        userId: Schema.ObjectId,
+        status: {
+            type: String,
+            enum: ['Attending', 'Maybe', 'No'],
+            required: true
+        }
+    }] ,
+    adminUsers: [Schema.ObjectId] ,
     creator: Schema.ObjectId
 })
 

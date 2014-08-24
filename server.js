@@ -115,7 +115,7 @@ app.post('/api/users', function(req, res) {
 });
 
 //Update current user
-app.put('/api/users', passport.authenticate('bearer', { session: false }),
+app.put('/api/userInfo', passport.authenticate('bearer', { session: false }),
 function(req, res) {
     // req.authInfo is set using the `info` argument supplied by
     // `BearerStrategy`.  It is typically used to indicate scope of the token,
@@ -129,7 +129,7 @@ function(req, res) {
         }
 
         //if missing required params fail the call
-        if(isEmptyObject(req.body) || !req.body.hasOwnProperty('firstName') || !req.body.hasOwnProperty('lastName')) {
+        if(isEmptyObject(req.body)) {
             res.statusCode = 400;
             return res.send("Missing params");
         }
@@ -138,12 +138,20 @@ function(req, res) {
         user.name = {
             firstName: req.body.firstName,
             lastName: req.body.lastName
-        }
+        } || user.name;
+        user.friendsList = req.body.friendsList || user.friendsList;
+        user.userProfile = {
+            fbId: req.body.fbId,
+            twitterId: req.body.twitterId,
+            parseId: req.body.parseId
+        } || user.userProfile;
+        user.email = req.body.email || user.email;
+        user.phone = req.body.phone || user.phone;
 
         return user.save(function (err) {
             if (!err) {
                 log.info("user updated");
-                return res.send({ status: 'OK', user:user });
+                res.json({ user_id: req.user.userId, username: req.user.username, name: req.user.name, userProfile: req.user.userProfile, email: req.user.email, phone: req.user.phone, friendsList: req.user.friendsList})
             } else {
                 if(err.name == 'ValidationError') {
                     res.statusCode = 400;
@@ -180,15 +188,75 @@ app.get('/api/users/:id', passport.authenticate('bearer', { session: false }), f
 /*
  * Get current user info i.e. user who is logged in
  */
-app.get('/api/users/userInfo', passport.authenticate('bearer', { session: false }),
+app.get('/api/userInfo', passport.authenticate('bearer', { session: false }),
     function(req, res) {
         // req.authInfo is set using the `info` argument supplied by
         // `BearerStrategy`.  It is typically used to indicate scope of the token,
         // and used in access control checks.  For illustrative purposes, this
         // example simply returns the scope in the response.
-        res.json({ user_id: req.user.userId, username: req.user.username, name: req.user.name, userProfile: req.user.userProfile, email: req.user.email, scope: req.authInfo.scope })
+        res.json({ user_id: req.user.userId, username: req.user.username, name: req.user.name, userProfile: req.user.userProfile, email: req.user.email, friendsList: req.user.friendsList})
     }
 );
+
+/*
+ * Get current user's friends
+ */
+app.get('/api/userInfo/friends', passport.authenticate('bearer', { session: false }),
+    function(req, res) {
+
+        return UserModel.find({_id: {$in: req.user.friendsList}}, function (err, users) {
+            if (!err) {
+                var userInfoArray = [];
+                var len = users.length
+                for (var i=0; i < len; i++) {
+                    var user = users[i];
+                    userInfoArray.push({
+                        username:user.username,
+                        userId:user._id,
+                        name: user.name,
+                        userProfile: user.userProfile,
+                        email: user.email,
+                        phone: user.phone
+                    });
+                }
+                res.send(userInfoArray);
+            } else {
+                res.statusCode = 500;
+                log.error('Internal error(%d): %s',res.statusCode,err.message);
+                return res.send({ error: 'Server error' });
+            }
+        });
+        // req.authInfo is set using the `info` argument supplied by
+        // `BearerStrategy`.  It is typically used to indicate scope of the token,
+        // and used in access control checks.  For illustrative purposes, this
+        // example simply returns the scope in the response.
+    }
+);
+
+app.post('/api/userInfo/friends/remove', passport.authenticate('bearer', { session: false }), function(req, res) {
+
+    if (!req.body.id) {
+        return res.send({ error: "friend ID missing"});
+    }
+
+    return UserModel.update({_id: req.user._id}, {$pull :{friendsList : req.body.id} }, function (err, user, raw) {
+        if (!err) {
+            log.info("Removed friend with id: "+req.body.id);
+            log.info(raw);
+            res.statusCode = 200
+            res.json({status: "success"});
+        } else {
+            if(err.name == 'ValidationError') {
+                res.statusCode = 400;
+                res.send({ error: 'Validation error' });
+            } else {
+                res.statusCode = 500;
+                res.send({ error: 'Server error' });
+            }
+            log.error('Internal error(%d): %s',res.statusCode,err.message);
+        }
+    });
+});
 
 //Event API calls
 app.get('/api/events', function(req, res) {
@@ -207,14 +275,14 @@ app.get('/api/events', function(req, res) {
 /*
  * Create event
    Params: invitedUsers = [ {
-            userId,
-            status = one of string [Attending, Maybe, No]
-          } ],
-          name: String (event name),
-          location: String,
-          date: Date,
-          adminUsers: [userId]
-   ]
+                userId,
+                status = one of string [Attending, Maybe, No]
+              } ],
+              name: String (event name),
+              location: String,
+              date: Date,
+              adminUsers: [userId]
+          ]
  */
 app.post('/api/events', passport.authenticate('bearer', { session: false }), function(req, res) {
 
@@ -223,9 +291,9 @@ app.post('/api/events', passport.authenticate('bearer', { session: false }), fun
         invitedUsers: req.body.invitedUsers,
         name: req.body.name,
         location: req.body.location,
-        date: req.body.date,
+        date: Date.parse(req.body.date),
         adminUsers: req.body.adminUsers
-    })
+    });
 
     event.save(function (err) {
         if (!err) {
@@ -235,15 +303,16 @@ app.post('/api/events', passport.authenticate('bearer', { session: false }), fun
             var pushQuery = new Parse.Query(Parse.Installation);
             // pushQuery.matchesQuery('user', userQuery);
             //Loop through invited users and add them to the parse query
-            for(var i=0; i < event.invitedUsers.length; i++) {
-                pushQuery.equalTo("user",  UserModel.findById(event.invitedUsers[i].userId, function(err, user) {
-                    if (!err) {
-                        log.info("user found: " + user);
-                        return user;
-                    }
-                }).username);
+            if (event.invitedUsers) {
+                for (var i=0; i < event.invitedUsers.length; i++) {
+                    pushQuery.equalTo("user",  UserModel.findById(event.invitedUsers[i].userId, function(err, user) {
+                        if (!err) {
+                            log.info("user found: " + user);
+                            return user;
+                        }
+                    }).username);
+                }
             }
-
             // userQuery.find({
             //     success: function(user) {
             //         pushQuery.equalTo
@@ -256,7 +325,7 @@ app.post('/api/events', passport.authenticate('bearer', { session: false }), fun
             Parse.Push.send({
                 where: pushQuery,
                 data: {
-                    alert: "~~~~~~~whut whut whut"
+                    alert: "You've been invited to " + event.name + "!"
                 }
             }, {
                 success: function() {
@@ -312,6 +381,9 @@ app.put('/api/events/:id', passport.authenticate('bearer', { session: false }), 
             return event.save(function (err) {
                 if (!err) {
                     log.info("event updated");
+
+
+
                     return res.send({ status: 'OK', event:event });
                 } else {
                     if(err.name == 'ValidationError') {
@@ -330,6 +402,25 @@ app.put('/api/events/:id', passport.authenticate('bearer', { session: false }), 
             log.error('Internal error(%d): %s',res.statusCode,err.message);
             return res.send({ error: 'Server error' });
         }
+    });
+});
+
+app.delete('/api/events/:id', passport.authenticate('bearer', { session: false }), function (req, res){
+    return EventModel.findById(req.params.id, function (err, event) {
+        if(!event) {
+            res.statusCode = 404;
+            return res.send({ error: 'Not found' });
+        }
+        return event.remove(function (err) {
+            if (!err) {
+                log.info("event removed");
+                return res.send({ status: 'OK' });
+            } else {
+                res.statusCode = 500;
+                log.error('Internal error(%d): %s',res.statusCode,err.message);
+                return res.send({ error: 'Server error' });
+            }
+        });
     });
 });
 

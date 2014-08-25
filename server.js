@@ -47,15 +47,17 @@ app.use(function(err, req, res, next){
     return;
 });
 
+
 app.get('/api', passport.authenticate('bearer', { session: false }), function (req, res) {
     res.send('API is running');
 });
 
+/* ----------------------------- USER API CALLS BEGIN ------------------------------ */
+
+// login / get auth oken and refresh token
 app.post('/oauth/token', oauth2.token);
 
-/*
- * Get All Users
- */
+// get all lastminute users
 app.get('/api/users', function(req, res) {
     return UserModel.find(function (err, users) {
         if (!err) {
@@ -80,9 +82,7 @@ app.get('/api/users', function(req, res) {
     });
 });
 
-/*
- * Sign Up/Create User
- */
+// signup/create new lastminute user
 app.post('/api/users', function(req, res) {
     //Create a user call
     var user = new UserModel({
@@ -95,6 +95,7 @@ app.post('/api/users', function(req, res) {
         email: req.body.email
     })
 
+    // persist new lastminute user to database
     user.save(function (err) {
         if (!err) {
             log.info("user created");
@@ -114,7 +115,7 @@ app.post('/api/users', function(req, res) {
     });
 });
 
-//Update current user
+// Update current user information
 app.put('/api/userInfo', passport.authenticate('bearer', { session: false }),
 function(req, res) {
     // req.authInfo is set using the `info` argument supplied by
@@ -134,7 +135,7 @@ function(req, res) {
             return res.send("Missing params");
         }
 
-        //update user name
+        // update user name
         user.name = {
             firstName: req.body.firstName,
             lastName: req.body.lastName
@@ -169,6 +170,7 @@ function(req, res) {
 }
 );
 
+// get info of particular user
 app.get('/api/users/:id', passport.authenticate('bearer', { session: false }), function(req, res) {
     return UserModel.findById(req.params.id, function (err, user) {
         if(!user) {
@@ -185,9 +187,8 @@ app.get('/api/users/:id', passport.authenticate('bearer', { session: false }), f
     });
 });
 
-/*
- * Get current user info i.e. user who is logged in
- */
+
+// Get current user info i.e. user who is logged in
 app.get('/api/userInfo', passport.authenticate('bearer', { session: false }),
     function(req, res) {
         // req.authInfo is set using the `info` argument supplied by
@@ -198,9 +199,7 @@ app.get('/api/userInfo', passport.authenticate('bearer', { session: false }),
     }
 );
 
-/*
- * Get current user's friends
- */
+// get current user's friends
 app.get('/api/userInfo/friends', passport.authenticate('bearer', { session: false }),
     function(req, res) {
 
@@ -233,6 +232,7 @@ app.get('/api/userInfo/friends', passport.authenticate('bearer', { session: fals
     }
 );
 
+// delete a particular friend of the current user
 app.post('/api/userInfo/friends/remove', passport.authenticate('bearer', { session: false }), function(req, res) {
 
     if (!req.body.id) {
@@ -258,7 +258,11 @@ app.post('/api/userInfo/friends/remove', passport.authenticate('bearer', { sessi
     });
 });
 
-//Event API calls
+/* ----------------------------- USER API CALLS END -------------------------------- */
+
+/* ---------------------------- EVENT API CALLS BEGIN ------------------------------ */
+
+// get all events
 app.get('/api/events', function(req, res) {
     return EventModel.find(function (err, events) {
         if (!err) {
@@ -284,6 +288,8 @@ app.get('/api/events', function(req, res) {
               adminUsers: [userId]
           ]
  */
+
+ // create new event
 app.post('/api/events', passport.authenticate('bearer', { session: false }), function(req, res) {
 
     var event = new EventModel({
@@ -295,6 +301,7 @@ app.post('/api/events', passport.authenticate('bearer', { session: false }), fun
         adminUsers: req.body.adminUsers
     });
 
+    // persist newly created event to database
     event.save(function (err) {
         if (!err) {
             // var userQuery = new Parse.Query(Parse.User);
@@ -302,7 +309,8 @@ app.post('/api/events', passport.authenticate('bearer', { session: false }), fun
 
             var pushQuery = new Parse.Query(Parse.Installation);
             // pushQuery.matchesQuery('user', userQuery);
-            //Loop through invited users and add them to the parse query
+
+            // Loop through invited users and add them to the parse query
             if (event.invitedUsers) {
                 for (var i=0; i < event.invitedUsers.length; i++) {
                     pushQuery.equalTo("user",  UserModel.findById(event.invitedUsers[i].userId, function(err, user) {
@@ -322,6 +330,7 @@ app.post('/api/events', passport.authenticate('bearer', { session: false }), fun
             //     }
             // })
 
+            // send push notification through parse to all users invited to the event
             Parse.Push.send({
                 where: pushQuery,
                 data: {
@@ -329,19 +338,20 @@ app.post('/api/events', passport.authenticate('bearer', { session: false }), fun
                 }
             }, {
                 success: function() {
-                    //oh shit
-                    log.info("SHIT IS WORKING")
+                    // success
+                    log.info("Push notifications successfully sent")
                 },
                 error: function(err) {
-                    //error
-                    log.info("shit aint working")
+                    // error
+                    log.info("Error: push notifications could not be sent")
                 }
             })
 
             /*INSERT CODE TO ADD EVENT TO EVERY INVITED USER*/
 
-            log.info("Event created");
+            log.info("Event: " + event.name + " successfully created");
             return res.send({ status: 'OK', event:event });
+
         } else {
             console.log(err);
             if(err.name == 'ValidationError') {
@@ -356,9 +366,7 @@ app.post('/api/events', passport.authenticate('bearer', { session: false }), fun
     });
 });
 
-/*
- * Modify event given event id
- */
+// update information for a particular event (found by id)
 app.put('/api/events/:id', passport.authenticate('bearer', { session: false }), function(req, res) {
 
     return EventModel.findById(req.params.id, function (err, event) {
@@ -366,8 +374,10 @@ app.put('/api/events/:id', passport.authenticate('bearer', { session: false }), 
             res.statusCode = 404;
             return res.send({ error: 'Not found' });
         }
+
         if (!err) {
 
+            // check if user making the request is an event admin: only admins can update the event
             if (event.creator != req.user.userId && event.adminUsers.indexOf(req.user.userId) == -1) {
                 return res.send({error: 'User '+req.user.username+' is not an admin. Cannot modify event.'})
             }
@@ -380,9 +390,7 @@ app.put('/api/events/:id', passport.authenticate('bearer', { session: false }), 
 
             return event.save(function (err) {
                 if (!err) {
-                    log.info("event updated");
-
-
+                    log.info("event: " + event.name + " successfully updated");
 
                     return res.send({ status: 'OK', event:event });
                 } else {
@@ -405,12 +413,21 @@ app.put('/api/events/:id', passport.authenticate('bearer', { session: false }), 
     });
 });
 
+// delete specific event
 app.delete('/api/events/:id', passport.authenticate('bearer', { session: false }), function (req, res){
     return EventModel.findById(req.params.id, function (err, event) {
         if(!event) {
             res.statusCode = 404;
             return res.send({ error: 'Not found' });
         }
+
+        // check if user making the request is an event admin: only admins can update the event
+        if (event.creator != req.user.userId && event.adminUsers.indexOf(req.user.userId) == -1) {
+            return res.send({error: 'User ' + req.user.username + ' is not an admin. Cannot delete event.'})
+        }
+
+        // remove event from database
+        // NOTE: Don't actually delete, only remove references to event?
         return event.remove(function (err) {
             if (!err) {
                 log.info("event removed");
@@ -423,6 +440,8 @@ app.delete('/api/events/:id', passport.authenticate('bearer', { session: false }
         });
     });
 });
+
+/* ----------------------------- EVENT API CALLS END -------------------------------- */
 
 app.get('/ErrorExample', function(req, res, next){
     next(new Error('Random error!'));

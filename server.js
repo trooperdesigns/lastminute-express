@@ -301,6 +301,8 @@ app.post('/api/events', passport.authenticate('bearer', { session: false }), fun
         adminUsers: req.body.adminUsers
     });
 
+    console.log(event);
+
     // persist newly created event to database
     event.save(function (err) {
         if (!err) {
@@ -311,6 +313,7 @@ app.post('/api/events', passport.authenticate('bearer', { session: false }), fun
             // pushQuery.matchesQuery('user', userQuery);
 
             // Loop through invited users and add them to the parse query
+            // TODO: update the user's eventInvites list
             if (event.invitedUsers) {
                 for (var i=0; i < event.invitedUsers.length; i++) {
                     pushQuery.equalTo("user",  UserModel.findById(event.invitedUsers[i].userId, function(err, user) {
@@ -321,6 +324,20 @@ app.post('/api/events', passport.authenticate('bearer', { session: false }), fun
                     }).username);
                 }
             }
+
+            // adding event to all admin users (TODO: CHANGE TO invitedUsers instead of adminUsers)
+            // this is for testing
+            if(event.adminUsers){
+                for(var i = 0; i < event.adminUsers.length; i++){
+                    UserModel.findByIdAndUpdate(event.adminUsers[i], {$push : {eventInvites : event}},
+                    {safe: true, upsert: true}, function(err, user){
+                        if(!err){
+                            log.info("eventInvites updated for user: " + user.username);
+                        }
+                    });
+                }
+            }
+
             // userQuery.find({
             //     success: function(user) {
             //         pushQuery.equalTo

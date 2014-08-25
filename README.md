@@ -11,6 +11,7 @@ Modules used:
 * winston
 * oauth2orize
 * passport
+* parse
 
 ## Install
 

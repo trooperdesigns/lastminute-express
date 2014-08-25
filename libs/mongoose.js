@@ -63,7 +63,8 @@ var User = new Schema({
     email: {
         type: String
     },
-    friendsList: [Schema.ObjectId]
+    friendsList: [Schema.ObjectId],
+    eventInvites: [Schema.ObjectId]
 });
 
 User.methods.encryptPassword = function(password) {

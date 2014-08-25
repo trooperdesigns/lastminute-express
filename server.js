@@ -232,6 +232,57 @@ app.get('/api/userInfo/friends', passport.authenticate('bearer', { session: fals
     }
 );
 
+// send a friend request --> add by phone number, facebook, email, username?
+app.post('/api/userInfo/friends/add', passport.authenticate('bearer', { session: false }), function(req, res) {
+
+    if (!req.body.id) {
+        return res.send({ error: "friend ID missing"});
+    }
+
+    // send request and set to pending until that person accepts
+    var pushQuery = new Parse.Query(Parse.Installation);
+    pushQuery.equalTo("user", req.body.id);
+
+    // send push notification through parse to all users invited to the event
+    Parse.Push.send({
+        where: pushQuery,
+        data: {
+            alert: req.user.username + " has sent you a friend request!"
+        }
+    }, {
+        success: function() {
+            // success
+            log.info("Friend request push notifications successfully sent to: " + req.body.id);
+            res.statusCode = 200;
+            res.json({status: "success"});
+        },
+        error: function(err) {
+            // error
+            log.info("Error: friend request push notification could not be sent")
+            res.statusCode = 500;
+            res.send({ error: 'Server error' });
+        }
+    }) 
+
+/*    return UserModel.update({_id: req.user._id}, {$pull :{friendsList : req.body.id} }, function (err, user, raw) {
+        if (!err) {
+            log.info("Removed friend with id: "+req.body.id);
+            log.info(raw);
+            res.statusCode = 200
+            res.json({status: "success"});
+        } else {
+            if(err.name == 'ValidationError') {
+                res.statusCode = 400;
+                res.send({ error: 'Validation error' });
+            } else {
+                res.statusCode = 500;
+                res.send({ error: 'Server error' });
+            }
+            log.error('Internal error(%d): %s',res.statusCode,err.message);
+        }
+    });*/
+});
+
 // delete a particular friend of the current user
 app.post('/api/userInfo/friends/remove', passport.authenticate('bearer', { session: false }), function(req, res) {
 

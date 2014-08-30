@@ -15,9 +15,6 @@ db.once('open', function callback () {
 
 var Schema = mongoose.Schema;
 
-// Article
-
-
 // User
 
 var User = new Schema({
@@ -64,7 +61,9 @@ var User = new Schema({
         type: String
     },
     friendsList: [Schema.ObjectId],
-    eventInvites: [Schema.ObjectId]
+    eventInvites: [Schema.ObjectId],
+    pendingFriends: [Schema.ObjectId],
+    pendingFriendRequests: [Schema.ObjectId]
 });
 
 User.methods.encryptPassword = function(password) {

@@ -258,6 +258,213 @@ app.post('/api/userInfo/friends/remove', passport.authenticate('bearer', { sessi
     });
 });
 
+//  add a friend given their user id
+//  only requests friend if use
+app.post('/api/userInfo/friends/request', passport.authenticate('bearer', { session: false}), function(req, res) {
+
+    var friendRequestSent = false;
+    var friendRequestReceived = false;
+
+    if (!req.body.id) {
+        return res.send({error: "friend Id missing"});
+    }
+
+    // Update user's pending friends list.
+    UserModel.findById(req.user.userId, function (err, user) {
+        log.info("test");
+        if(!user) {
+            res.statusCode = 404;
+            return res.send({ error: 'Not found' });
+        }
+
+        if (user.friendsList.indexOf(req.body.id) != -1) {
+            return res.send({error: req.body.id + ' is already a friend'});
+        }
+
+        // update user name
+        if (user.pendingFriends.indexOf(req.body.id) == -1) {
+            // Friend Id has not been added to pending friends list and is not a friend
+            user.pendingFriends.push(req.body.id);
+
+            // Save requested friend's ID to pendingFriends list
+            user.save(function (err) {
+                if (!err) {
+                    friendRequestSent = true;
+                    log.info("friend:" + req.body.id + " added to current user pending list");
+
+                    // Update friend id's pending friend request list.
+                    UserModel.findById(req.body.id, function (err, friend) {
+                        log.info("hello");
+                        if(!friend) {
+                            res.statusCode = 404;
+                            return res.send({ error: 'Not found' });
+                        }
+
+                        if (friend.friendsList.indexOf(req.user.userId) != -1) {
+                            return res.send( { error: req.user.userId + ' was found in friendsList already !'})
+                        }
+
+                        // update friend name
+                        if (friend.pendingFriendRequests.indexOf(req.user.userId) == -1) {
+                            // Friend Id has not been added to pending friends list
+                            friend.pendingFriendRequests.push(req.user.userId);
+
+                            friend.save(function (err) {
+                                if (!err) {
+                                    friendRequestReceived = true;
+                                    log.info("friend:" + req.body.id + " added to current user request list");
+
+                                    if (friendRequestSent && friendRequestReceived) {
+                                        return res.json({response: "friend request submitted and received!", user:user, friend:friend});
+                                    } else {
+                                        return res.json({error: "oops, friend request was unable to send! please try again"});
+                                    }
+
+                                    //res.json({ user_id: req.user.userId, username: req.user.username, name: req.user.name, userProfile: req.user.userProfile, email: req.user.email, phone: req.user.phone, friendsList: req.user.friendsList})
+                                } else {
+                                    if(err.name == 'ValidationError') {
+                                        res.statusCode = 400;
+                                        res.send({ error: 'Validation error' });
+                                    } else {
+                                        res.statusCode = 500;
+                                        res.send({ error: 'Server error' });
+                                    }
+                                    log.error('Internal error(%d): %s',res.statusCode,err.message);
+                                }
+                            });
+                        } else {
+                            res.send({ error: 'given Id was already in pending friend requests'})
+                        }
+
+                        // Send a parse push notification to notify friend is being requested
+                        // PARSE GOES HERE
+
+                    });
+
+                    //res.json({ user_id: req.user.userId, username: req.user.username, name: req.user.name, userProfile: req.user.userProfile, email: req.user.email, phone: req.user.phone, friendsList: req.user.friendsList})
+                } else {
+                    if(err.name == 'ValidationError') {
+                        res.statusCode = 400;
+                        res.send({ error: 'Validation error' });
+                    } else {
+                        res.statusCode = 500;
+                        res.send({ error: 'Server error' });
+                    }
+                    log.error('Internal error(%d): %s',res.statusCode,err.message);
+                }
+            });
+        } else {
+            return res.send({error: 'given id is already a pending or current friend'});
+        }
+
+        
+    });
+
+});
+
+//  accept a friend request given their user id
+// use POST while giving a userID to accept. Only adds if given ID is a pending friend request Id
+app.post('/api/userInfo/friends/accept', passport.authenticate('bearer', { session: false}), function(req, res) {
+
+    var friendRequestAccepted = false;
+    var friendRequestNotified = false;
+
+    if (!req.body.id) {
+        return res.send({error: "friend Id missing"});
+    }
+
+    // Update user's pending friends list.
+    UserModel.findById(req.user.userId, function (err, user) {
+        log.info("test");
+        if(!user) {
+            res.statusCode = 404;
+            return res.send({ error: 'Not found' });
+        }
+
+        if (user.friendsList.indexOf(req.body.id) != -1) {
+            return res.send({error: req.body.id + ' is already a friend'});
+        }
+
+        log.info(JSON.stringify(user.pendingFriendRequests));
+
+        // update user name
+        if (user.pendingFriendRequests.indexOf(req.body.id) > -1) {
+            // Friend Id has not been added to pending friends list
+            log.info("now accepting friend request from" + req.body.id);
+            user.pendingFriendRequests.splice(user.pendingFriendRequests.indexOf(req.body.id), 1);
+            user.friendsList.push(req.body.id);
+
+            user.save(function (err) {
+                if (!err) {
+                    friendRequestAccepted = true;
+                    log.info("friend:" + req.body.id + " added to current user friend list");
+
+                    // Update friend id's friend list with current user
+                    UserModel.findById(req.body.id, function (err, friend) {
+                        log.info("hello");
+                        if(!friend) {
+                            res.statusCode = 404;
+                            return res.send({ error: 'Not found' });
+                        }
+
+                        if (friend.friendsList.indexOf(req.user.userId) != -1) {
+                            return res.send( { error: req.user.userId + ' was found in friendsList already !'})
+                        }
+
+                        // update friend name
+                        if (friend.pendingFriends.indexOf(req.user.userId) > -1) {
+                            // Friend Id has not been added to pending friends list
+                            friend.pendingFriends.splice(user.pendingFriends.indexOf(req.user.userId), 1);
+                            friend.friendsList.push(req.user.userId);
+                        }
+
+                        // Send a parse push notification to notify friend is being added
+                        // PARSE CODE HERE
+
+                        friend.save(function (err) {
+                            if (!err) {
+                                friendRequestNotified = true;
+                                log.info("friend:" + req.user.userId + " added to current user friend list");
+
+                                if (friendRequestAccepted && friendRequestNotified) {
+                                    return res.json({response: "friend request accepted and notified!", user:user, friend:friend});
+                                } else {
+                                    return res.json({error: "oops, friend request was unable to send! please try again"});
+                                }
+
+                            } else {
+                                if(err.name == 'ValidationError') {
+                                    res.statusCode = 400;
+                                    res.send({ error: 'Validation error' });
+                                } else {
+                                    res.statusCode = 500;
+                                    res.send({ error: 'Server error' });
+                                }
+                                log.error('Internal error(%d): %s',res.statusCode,err.message);
+                            }
+                        });
+                    });
+
+                    //res.json({ user_id: req.user.userId, username: req.user.username, name: req.user.name, userProfile: req.user.userProfile, email: req.user.email, phone: req.user.phone, friendsList: req.user.friendsList})
+                } else {
+                    if(err.name == 'ValidationError') {
+                        res.statusCode = 400;
+                        res.send({ error: 'Validation error' });
+                    } else {
+                        res.statusCode = 500;
+                        res.send({ error: 'Server error' });
+                    }
+                    log.error('Internal error(%d): %s',res.statusCode,err.message);
+                }
+            });
+        } else {
+            res.send({ error: 'given id is not a pennding friend request'});
+        }
+
+    });
+
+});
+
 /* ----------------------------- USER API CALLS END -------------------------------- */
 
 /* ---------------------------- EVENT API CALLS BEGIN ------------------------------ */
